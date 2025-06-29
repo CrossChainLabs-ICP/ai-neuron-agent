@@ -1,4 +1,5 @@
 import { logger, type IAgentRuntime, type Project, type ProjectAgent, type Memory } from '@elizaos/core';
+import openAIPlugin from "@elizaos/plugin-openai";
 import starterPlugin from './plugin.ts';
 import { character } from './character.ts';
 import { nnsPlugin } from '@crosschainlabs/plugin-icp-nns';
@@ -27,7 +28,7 @@ export const projectAgent: ProjectAgent = {
 
     // Schedule HELLO_WORLD_PROVIDER to run every minute (60000ms)
     const intervalMs = 10_000;
-    setInterval(async () => {
+    const timerId = setInterval(async () => {
       logger.info('Timer: invoking HELLO_WORLD_PROVIDER');
       try {
         // Locate the provider from starterPlugin
@@ -70,13 +71,55 @@ export const projectAgent: ProjectAgent = {
         } as unknown as Memory;
         // Invoke the provider with the real runtime and empty state
         const resultNNS = await nnsProvider.get(runtime, nnsMessage, {} as any);
-        logger.info('NNS Provider result:', resultNNS);
+        //logger.info('NNS Provider result:', resultNNS);
+
+        interface Proposal {
+          id: string;
+          title: string;
+          summary: string;
+          topic: string;
+          status: string;
+          timestamp: bigint;
+        }
+
+        const proposals = (resultNNS.data as { proposals: Proposal[] }).proposals;
+
+        for (const proposal of proposals) {
+          if (!proposal.summary) continue;
+
+          try {
+            // 1) Prompt the model and ask for strict JSON output
+            const raw = await runtime.useModel(
+              'TEXT_LARGE',
+              {
+                prompt: `From the following proposal summary, extract the latest commit hash and the previous commit hash, and return them as JSON with keys "latestCommit" and "previousCommit":\n\n${proposal.summary}\n\nRespond with ONLY the JSON object, but exclude formating \`\`\`json .`
+              });
+
+            logger.info(raw);
+            // 2) Parse the JSON response
+            const { latestCommit, previousCommit } = JSON.parse(raw);
+
+            // 3) Now you can log or use them however you like
+            logger.info(
+              `Proposal "${proposal.title}": latest=${latestCommit}, previous=${previousCommit}`
+            );
+
+            //TODO: remove
+            break;
+          } catch (e) {
+            logger.error(
+              `Failed to extract commits for proposal "${proposal.title}":`,
+              e
+            );
+          }
+        }
+
       } catch (err) {
         logger.error('Error running HELLO_WORLD_PROVIDER:', err);
       }
     }, intervalMs);
   },
-  plugins: [starterPlugin, nnsPlugin],
+  plugins: [starterPlugin, nnsPlugin, openAIPlugin],
 };
 
 const project: Project = {
