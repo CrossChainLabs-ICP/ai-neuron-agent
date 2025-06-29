@@ -1,11 +1,10 @@
 {
-  "name": "ai-neuron-agent",
+  "name": "ai-neuron-agent-template",
   "description": "Project starter for elizaOS",
   "version": "0.1.0",
   "type": "module",
-  "private": true,
-  "main": "dist/index.js",
-  "module": "dist/index.js",
+  "main": "dist/src/index.js",
+  "module": "dist/src/index.js",
   "types": "dist/index.d.ts",
   "keywords": [
     "project",
@@ -13,14 +12,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "github:elizaos/ai-neuron-agent"
+    "url": ""
   },
   "exports": {
     "./package.json": "./package.json",
     ".": {
       "import": {
         "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
+        "default": "./dist/src/index.js"
       }
     }
   },
@@ -28,40 +27,57 @@
     "dist"
   ],
   "dependencies": {
-    "@elizaos/cli": "beta",
-    "@elizaos/core": "beta",
-    "@elizaos/plugin-bootstrap": "^1.0.0-beta.76",
-    "@elizaos/plugin-openai": "beta",
-    "@elizaos/plugin-sql": "beta",
+    "@elizaos/cli": "latest",
+    "@elizaos/core": "latest",
+    "@elizaos/plugin-bootstrap": "latest",
+    "@elizaos/plugin-openai": "1.0.6",
+    "@elizaos/plugin-sql": "latest",
+    "@tanstack/react-query": "^5.29.0",
+    "clsx": "^2.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss": "^4.1.10",
     "zod": "3.24.2"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "2.1.5",
+    "@cypress/react": "^9.0.1",
+    "@cypress/vite-dev-server": "^6.0.3",
+    "@testing-library/cypress": "^10.0.3",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "cypress": "^14.4.1",
     "prettier": "3.5.3",
-    "tsup": "8.4.0",
-    "vitest": "2.1.5"
+    "tsup": "8.5.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.1"
   },
   "scripts": {
     "start": "elizaos start",
     "dev": "elizaos dev",
-    "build": "tsup",
+    "build": "tsc --noEmit && vite build && tsup",
     "lint": "prettier --write ./src",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest",
+    "type-check": "tsc --noEmit",
+    "type-check:watch": "tsc --noEmit --watch",
+    "test:component": "bun run test:install && bun test",
+    "test:e2e": "bun run test:install && bun test",
+    "test": "bun run test:install && bun run test:component && bun run test:e2e",
+    "test:coverage": "bun run test:install && bun test --coverage",
+    "test:watch": "bun run test:install && bun test --watch",
+    "test:install": "node scripts/install-test-deps.js",
     "format": "prettier --write ./src",
-    "format:check": "prettier --check ./src"
+    "format:check": "prettier --check ./src",
+    "check-all": "bun run type-check && bun run format:check && bun run test",
+    "cy:open": "bun run test:install && cypress open",
+    "cy:run": "bun run test:install && cypress run --component",
+    "cy:test": "bun run test:install && cypress run --component --reporter spec",
+    "cypress:component": "bun run test:install && cypress run --component",
+    "cypress:e2e": "bun run test:install && cypress run --e2e",
+    "cypress:open": "bun run test:install && cypress open"
   },
   "publishConfig": {
     "access": "public"
   },
-  "gitHead": "b165ad83e5f7a21bc1edbd83374ca087e3cd6b33",
-  "packageType": "project",
-  "agentConfig": {
-    "pluginType": "elizaos:project:1.0.0",
-    "projectConfig": {
-      "name": "ai-neuron-agent",
-      "description": "Project starter for elizaOS"
-    }
-  }
+  "gitHead": "b165ad83e5f7a21bc1edbd83374ca087e3cd6b33"
 }

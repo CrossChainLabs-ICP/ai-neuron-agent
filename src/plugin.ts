@@ -14,7 +14,6 @@ import {
   logger,
 } from '@elizaos/core';
 import { z } from 'zod';
-import starterTestSuite from './tests';
 
 /**
  * Define the configuration schema for the plugin with the following properties:
@@ -81,7 +80,7 @@ const helloWorldAction: Action = {
       // Call back with the hello world message
       await callback(responseContent);
 
-      return responseContent;
+      return true;
     } catch (error) {
       logger.error('Error in HELLO_WORLD action:', error);
       throw error;
@@ -132,7 +131,8 @@ export class StarterService extends Service {
   static serviceType = 'starter';
   capabilityDescription =
     'This is a starter service which is attached to the agent through the starter plugin.';
-  constructor(protected runtime: IAgentRuntime) {
+
+  constructor(runtime: IAgentRuntime) {
     super(runtime);
   }
 
@@ -160,6 +160,8 @@ export class StarterService extends Service {
 const plugin: Plugin = {
   name: 'starter',
   description: 'A starter plugin for Eliza',
+  // Set lowest priority so real models take precedence
+  priority: -1000,
   config: {
     EXAMPLE_PLUGIN_VARIABLE: process.env.EXAMPLE_PLUGIN_VARIABLE,
   },
@@ -202,9 +204,9 @@ const plugin: Plugin = {
       return 'Never gonna make you cry, never gonna say goodbye, never gonna tell a lie and hurt you...';
     },
   },
-  tests: [starterTestSuite],
   routes: [
     {
+      name: 'helloworld',
       path: '/helloworld',
       type: 'GET',
       handler: async (_req: any, res: any) => {
