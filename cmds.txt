@@ -1,0 +1,1 @@
+elizaos plugins add @crosschainlabs/plugin-icp-nns
