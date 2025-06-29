@@ -17,6 +17,16 @@ const initCharacter = async ({ runtime }: { runtime: IAgentRuntime }) => {
   logger.info(`Name: ${character.name}`);
 };
 
+function stripJsonFences(input: string): string {
+  // ^```json\s*      → opening fence at start plus optional whitespace/newline
+  // ([\s\S]*?)       → capture everything (including newlines), non-greedy
+  // \s*```$          → optional whitespace/newline then closing fence at end
+  const fencePattern = /^```json\s*([\s\S]*?)\s*```$/;
+
+  const match = fencePattern.exec(input);
+  return match ? match[1] : input;
+}
+
 /**
  * The ProjectAgent runs without a UI and triggers the starterPlugin provider on a timer.
  */
@@ -27,7 +37,7 @@ export const projectAgent: ProjectAgent = {
     await initCharacter({ runtime });
 
     // Schedule HELLO_WORLD_PROVIDER to run every minute (60000ms)
-    const intervalMs = 10_000;
+    const intervalMs = 60_000;
     const timerId = setInterval(async () => {
       logger.info('Timer: invoking HELLO_WORLD_PROVIDER');
       try {
@@ -88,6 +98,7 @@ export const projectAgent: ProjectAgent = {
           if (!proposal.summary) continue;
 
           try {
+            /***** 
             // 1) Prompt the model and ask for strict JSON output
             const raw = await runtime.useModel(
               'TEXT_LARGE',
@@ -98,14 +109,66 @@ export const projectAgent: ProjectAgent = {
             logger.info(raw);
             // 2) Parse the JSON response
             const { latestCommit, previousCommit } = JSON.parse(raw);
+            */
+
+            const repository = "https://github.com/dfinity/cycles-ledger.git";
+            const latestCommit = "93f5c0f5779e31673786c83aa50ff2bbf9650162";
+            const previousCommit = "01236e4d60738fc2277d47d16b95f28cff564370";
+
+
 
             // 3) Now you can log or use them however you like
             logger.info(
               `Proposal "${proposal.title}": latest=${latestCommit}, previous=${previousCommit}`
             );
 
-            //TODO: remove
-            break;
+
+            //Download Changes between previousCommit and latestCommit
+            // 1) Compute GitHub API compare URL
+            const apiRepo = repository
+              .replace('https://github.com/', 'https://api.github.com/repos/')
+              .replace(/\.git$/, '');
+            const compareUrl = `${apiRepo}/compare/${previousCommit}...${latestCommit}`;
+
+            // 2) Fetch the raw diff
+            const diffResp = await fetch(compareUrl, {
+              headers: { Accept: 'application/vnd.github.v3.diff' },
+            });
+            if (!diffResp.ok) {
+              throw new Error(`Failed to fetch diff: ${diffResp.status} ${diffResp.statusText}`);
+            }
+            const diffText = await diffResp.text();
+            logger.info(`Fetched diff (${diffText.length} chars)`);
+
+            // 3) Audit the diff with OpenAI
+            const auditPrompt = `
+            Please review the following git diff for security, performance, 
+            or other code‐quality issues. Without comments or notes.
+            Respond only with this strict JSON schema:
+            {
+              "issues": [
+                {
+                  "line": <number>,
+                  "severity": <low|medium|high>
+                  "file": "<path/to/file>",
+                  "issue": "<description>"
+                },
+                ...
+              ]
+            }
+            ---
+            ${diffText}
+            `;
+            const rawAudit = await runtime.useModel('TEXT_LARGE', { prompt: auditPrompt });
+            
+            logger.info(`rawAudit result:`, rawAudit);
+
+
+            const audit = JSON.parse(stripJsonFences(rawAudit));
+
+            logger.info(`Audit result:`, audit);
+
+            
           } catch (e) {
             logger.error(
               `Failed to extract commits for proposal "${proposal.title}":`,
