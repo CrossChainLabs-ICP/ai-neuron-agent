@@ -65,9 +65,8 @@ export const projectAgent: ProjectAgent = {
     // Character initialization
     await initCharacter({ runtime });
 
-    //await mainLoop();
 
-    const intervalMs = 60_000;
+    const intervalMs = 10_000;
     const timerId = setInterval(async () => {
             try {
 
