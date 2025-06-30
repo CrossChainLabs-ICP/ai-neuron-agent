@@ -88,7 +88,7 @@ export const projectAgent: ProjectAgent = {
           id: newId,
           entityId: newEntityId,
           roomId: newRoomId,
-          content: { text: `!proposals 10 topic ${IcOsVersionElection}`, source: 'test' },
+          content: { text: `!proposals 10 topic ${ProtocolCanisterManagement}`, source: 'test' },
         } as unknown as Memory;
         // Invoke the provider with the real runtime and empty state
         const resultNNS = await nnsProvider.get(runtime, nnsMessage, {} as any);
@@ -114,24 +114,22 @@ export const projectAgent: ProjectAgent = {
 
           try {
 
-            /***** 
             // 1) Prompt the model and ask for strict JSON output
             const raw = await runtime.useModel(
               'TEXT_LARGE',
               {
-                prompt: `From the following proposal summary, extract the latest commit hash and the previous commit hash, and return them as JSON with keys "latestCommit" and "previousCommit":\n\n${proposal.summary}\n\nRespond with ONLY the JSON object, but exclude formating \`\`\`json .`
+                prompt: `
+                From the following proposal summary, extract the repository, the latest commit hash and the previous commit hash, and return them as JSON with keys "repository", "latestCommit" and "previousCommit":\n\n${proposal.summary}\n\nRespond with ONLY the JSON object, but exclude formating \`\`\`json .`
               });
-    
-            logger.info(raw);
-            // 2) Parse the JSON response
-            const { latestCommit, previousCommit } = JSON.parse(raw);
-            */
 
+            // 2) Parse the JSON response
+            const { repository, latestCommit, previousCommit } = JSON.parse(raw);
+
+            /*
             const repository = "https://github.com/dfinity/cycles-ledger.git";
             const latestCommit = "93f5c0f5779e31673786c83aa50ff2bbf9650162";
             const previousCommit = "01236e4d60738fc2277d47d16b95f28cff564370";
-
-
+            */
 
             // 3) Now you can log or use them however you like
             logger.info(
@@ -158,6 +156,8 @@ export const projectAgent: ProjectAgent = {
             const diffText = await diffResp.text();
 
             logger.info(`Download complete.`);
+
+            logger.info(`Fetched diff (${diffText.length} chars)`);
 
             logger.info(`Analyze code.`);
 
@@ -206,7 +206,7 @@ export const projectAgent: ProjectAgent = {
             logger.info(`Report saved.`, saveResult);
           } catch (e) {
             logger.error(
-              `Error for proposal "${proposal.id}"`
+              `Error for proposal "${proposal.id}"`, e
             );
           }
 
