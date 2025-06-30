@@ -65,8 +65,7 @@ export const projectAgent: ProjectAgent = {
     // Character initialization
     await initCharacter({ runtime });
 
-
-    const intervalMs = 10_000;
+    const intervalMs = 5_000;
     const timerId = setInterval(async () => {
             try {
 
@@ -87,7 +86,7 @@ export const projectAgent: ProjectAgent = {
           id: newId,
           entityId: newEntityId,
           roomId: newRoomId,
-          content: { text: `!proposals 10 topic ${ProtocolCanisterManagement}`, source: 'test' },
+          content: { text: `!proposals 10 topic ${ProtocolCanisterManagement} status ${ProposalStatusOpen}`, source: 'test' },
         } as unknown as Memory;
         // Invoke the provider with the real runtime and empty state
         const resultNNS = await nnsProvider.get(runtime, nnsMessage, {} as any);
@@ -118,11 +117,20 @@ export const projectAgent: ProjectAgent = {
               'TEXT_LARGE',
               {
                 prompt: `
-                From the following proposal summary, extract the repository, the latest commit hash and the previous commit hash, and return them as JSON with keys "repository", "latestCommit" and "previousCommit":\n\n${proposal.summary}\n\nRespond with ONLY the JSON object, but exclude formating \`\`\`json .`
+                From the following proposal summary, 
+                extract the repository, 
+                the latest commit hash and the previous commit hash, 
+                and return them as JSON with keys "repository", "latestCommit" and "previousCommit":\n\n${proposal.summary}\n\n 
+                Respond only with this strict JSON schema:
+                {
+                  "repository":,
+                  "latestCommit":
+                  "previousCommit":,
+                }`
               });
 
             // 2) Parse the JSON response
-            const { repository, latestCommit, previousCommit } = JSON.parse(raw);
+            const { repository, latestCommit, previousCommit } = JSON.parse(stripJsonFences(raw));
 
             /*
             const repository = "https://github.com/dfinity/cycles-ledger.git";
@@ -183,7 +191,6 @@ export const projectAgent: ProjectAgent = {
 
             logger.info(`Analysis complete.`);
 
-
             const audit = JSON.parse(stripJsonFences(rawAudit));
 
             logger.info(audit);
@@ -217,7 +224,7 @@ export const projectAgent: ProjectAgent = {
       }
     }, intervalMs);
   },
-  plugins: [nnsPlugin, openAIPlugin],
+  plugins: [openAIPlugin, nnsPlugin],
 };
 
 const project: Project = {

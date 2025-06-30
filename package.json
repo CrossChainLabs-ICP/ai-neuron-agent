@@ -27,7 +27,7 @@
     "dist"
   ],
   "dependencies": {
-    "@crosschainlabs/plugin-icp-nns": "0.1.6",
+    "@crosschainlabs/plugin-icp-nns": "0.1.7",
     "@dfinity/agent": "^2.4.1",
     "@elizaos/cli": "latest",
     "@elizaos/core": "latest",
