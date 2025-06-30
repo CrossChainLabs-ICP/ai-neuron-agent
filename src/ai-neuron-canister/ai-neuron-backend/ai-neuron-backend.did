@@ -1,0 +1,7 @@
+type ReportStorage = 
+ service {
+   getReport: (proposalID: text) -> (opt text) query;
+   listReports: () -> (vec text) query;
+   saveReport: (proposalID: text, auditB64: text) -> (opt text);
+ };
+service : () -> ReportStorage

@@ -1,13 +1,37 @@
 import { logger, type IAgentRuntime, type Project, type ProjectAgent, type Memory } from '@elizaos/core';
 import openAIPlugin from "@elizaos/plugin-openai";
+import { Actor, HttpAgent } from '@dfinity/agent';
+import { nnsPlugin } from '@crosschainlabs/plugin-icp-nns';
+
 import starterPlugin from './plugin.ts';
 import { character } from './character.ts';
-import { nnsPlugin } from '@crosschainlabs/plugin-icp-nns';
 import { v4 as uuidv4 } from 'uuid';
+import { idlFactory } from './ai-neuron-canister/ai-neuron-backend/';
 
 const IcOsVersionElection = 13;
 const ProtocolCanisterManagement = 17;
 const ProposalStatusOpen = 1;
+
+async function createStorageActor() {
+  const agent = await HttpAgent.create({ host: 'http://127.0.0.1:4943' });
+  //const agent = await HttpAgent.create({ host: 'https://ic0.app' });
+  const canisterId = 'uxrrr-q7777-77774-qaaaq-cai';
+  return Actor.createActor(idlFactory, { agent, canisterId });
+}
+
+async function saveReport(proposalID: String, report: String) {
+  const storageActor = await createStorageActor();
+  let response = undefined;
+
+  try {
+    response = await storageActor.saveReport(proposalID, report);
+    
+  } catch (error) {
+    
+  }
+
+  return response;
+}
 
 /**
  * Initialize the character in a headless (no-UI) environment.
@@ -27,8 +51,13 @@ function stripJsonFences(input: string): string {
   return match ? match[1] : input;
 }
 
+function reportToBase64(obj: unknown): string {
+  const json = JSON.stringify(obj);
+  return Buffer.from(json, 'utf8').toString('base64');
+}
+
 /**
- * The ProjectAgent runs without a UI and triggers the starterPlugin provider on a timer.
+ * The ProjectAgent runs without a UI and triggers the nnsPlugin provider on a timer.
  */
 export const projectAgent: ProjectAgent = {
   character,
@@ -36,42 +65,24 @@ export const projectAgent: ProjectAgent = {
     // Character initialization
     await initCharacter({ runtime });
 
-    // Schedule HELLO_WORLD_PROVIDER to run every minute (60000ms)
+    //await mainLoop();
+
     const intervalMs = 60_000;
     const timerId = setInterval(async () => {
-      logger.info('Timer: invoking HELLO_WORLD_PROVIDER');
-      try {
-        // Locate the provider from starterPlugin
-        const provider = starterPlugin.providers?.find(
-          (p) => p.name === 'HELLO_WORLD_PROVIDER'
-        );
-        if (!provider) throw new Error('HELLO_WORLD_PROVIDER not found');
+            try {
 
-
-        // Locate the provider from starterPlugin
+        // Locate the provider from nnsPlugin
         const nnsProvider = nnsPlugin.providers?.find(
           (p) => p.name === 'GOVERNANCE_PROVIDER'
         );
-        if (!nnsProvider) throw new Error('GOVERNANCE_PROVIDER not found');
+        if (!nnsProvider) throw new Error('NNS GOVERNANCE_PROVIDER not found');
 
         // Generate a valid paced UUID for Memory fields
         const newId = uuidv4() as `${string}-${string}-${string}-${string}-${string}`;
         const newEntityId = uuidv4() as `${string}-${string}-${string}-${string}-${string}`;
         const newRoomId = uuidv4() as `${string}-${string}-${string}-${string}-${string}`;
 
-                // Create a dummy Memory for the timer trigger
-        // Cast through unknown to satisfy Memory interface
-        const timerMessage = {
-          id: newId,
-          entityId: newEntityId,
-          roomId: newRoomId,
-          content: { text: '', source: 'timer' },
-        } as unknown as Memory;
-
-        // Invoke the provider with the real runtime and empty state
-        const result = await provider.get(runtime, timerMessage, {} as any);
-        logger.info('Provider result:', result);
-
+        logger.info('Start fetching proposals from NNS.');
 
         const nnsMessage = {
           id: newId,
@@ -94,10 +105,15 @@ export const projectAgent: ProjectAgent = {
 
         const proposals = (resultNNS.data as { proposals: Proposal[] }).proposals;
 
+        logger.info(`Fetched ${proposals.length} proposals.`);
+
         for (const proposal of proposals) {
           if (!proposal.summary) continue;
 
+          logger.info(`Analize proposal ${proposal.id} ${proposal.title}`);
+
           try {
+
             /***** 
             // 1) Prompt the model and ask for strict JSON output
             const raw = await runtime.useModel(
@@ -105,7 +121,7 @@ export const projectAgent: ProjectAgent = {
               {
                 prompt: `From the following proposal summary, extract the latest commit hash and the previous commit hash, and return them as JSON with keys "latestCommit" and "previousCommit":\n\n${proposal.summary}\n\nRespond with ONLY the JSON object, but exclude formating \`\`\`json .`
               });
-
+    
             logger.info(raw);
             // 2) Parse the JSON response
             const { latestCommit, previousCommit } = JSON.parse(raw);
@@ -119,9 +135,11 @@ export const projectAgent: ProjectAgent = {
 
             // 3) Now you can log or use them however you like
             logger.info(
-              `Proposal "${proposal.title}": latest=${latestCommit}, previous=${previousCommit}`
+              `Repo: ${repository}, latestCommit=${latestCommit}, previousCommit=${previousCommit}`
             );
 
+
+            logger.info(`Download code from GitHub.`);
 
             //Download Changes between previousCommit and latestCommit
             // 1) Compute GitHub API compare URL
@@ -138,7 +156,10 @@ export const projectAgent: ProjectAgent = {
               throw new Error(`Failed to fetch diff: ${diffResp.status} ${diffResp.statusText}`);
             }
             const diffText = await diffResp.text();
-            logger.info(`Fetched diff (${diffText.length} chars)`);
+
+            logger.info(`Download complete.`);
+
+            logger.info(`Analyze code.`);
 
             // 3) Audit the diff with OpenAI
             const auditPrompt = `
@@ -160,29 +181,44 @@ export const projectAgent: ProjectAgent = {
             ${diffText}
             `;
             const rawAudit = await runtime.useModel('TEXT_LARGE', { prompt: auditPrompt });
-            
-            logger.info(`rawAudit result:`, rawAudit);
+
+            logger.info(`Analysis complete.`);
 
 
             const audit = JSON.parse(stripJsonFences(rawAudit));
 
-            logger.info(`Audit result:`, audit);
+            logger.info(audit);
 
-            
+            const report = {
+              id: proposal.id,
+              title: proposal.title,
+              summary: proposal.summary,
+              topic: proposal.topic,
+              status: proposal.status,
+              timestamp: proposal.timestamp.toString(),
+              audit,
+            };
+
+            logger.info(`Save report on-chain.`);
+
+            const saveResult = await saveReport(proposal.id, reportToBase64(report));
+
+            logger.info(`Report saved.`, saveResult);
           } catch (e) {
             logger.error(
-              `Failed to extract commits for proposal "${proposal.title}":`,
-              e
+              `Error for proposal "${proposal.id}"`
             );
           }
+
+          break;
         }
 
       } catch (err) {
-        logger.error('Error running HELLO_WORLD_PROVIDER:', err);
+        logger.error('Error :', err);
       }
     }, intervalMs);
   },
-  plugins: [starterPlugin, nnsPlugin, openAIPlugin],
+  plugins: [nnsPlugin, openAIPlugin],
 };
 
 const project: Project = {

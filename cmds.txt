@@ -1,1 +1,2 @@
 elizaos plugins add @crosschainlabs/plugin-icp-nns
+elizaos plugins add @crosschainlabs/plugin-icp-nns@0.1.6
