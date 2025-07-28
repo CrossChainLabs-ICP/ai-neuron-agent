@@ -28,7 +28,8 @@
   ],
   "dependencies": {
     "@crosschainlabs/plugin-icp-nns": "0.1.7",
-    "@dfinity/agent": "^2.4.1",
+    "@dfinity/agent": "^3.1.0",
+    "@dfinity/identity-secp256k1": "^3.1.0",
     "@dqbd/tiktoken": "^1.0.21",
     "@elizaos/cli": "latest",
     "@elizaos/core": "latest",
@@ -37,6 +38,7 @@
     "@elizaos/plugin-sql": "latest",
     "@tanstack/react-query": "^5.29.0",
     "clsx": "^2.1.1",
+    "pem-file": "^1.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.6.0",

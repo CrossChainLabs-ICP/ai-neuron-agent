@@ -1,9 +1,12 @@
 export const idlFactory = ({ IDL }) => {
-  const ReportStorage = IDL.Service({
-    'getReport' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Text)], ['query']),
-    'listReports' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
-    'saveReport' : IDL.Func([IDL.Text, IDL.Text], [IDL.Opt(IDL.Text)], []),
+  const ReportsStorage = IDL.Service({
+    'autoscale' : IDL.Func([], [IDL.Nat], []),
+    'balance' : IDL.Func([], [IDL.Nat], ['query']),
+    'delete_workers' : IDL.Func([], [], []),
+    'get_workers' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
+    'saveReport' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [IDL.Bool], []),
+    'upgrade' : IDL.Func([IDL.Vec(IDL.Nat8)], [], []),
   });
-  return ReportStorage;
+  return ReportsStorage;
 };
 export const init = ({ IDL }) => { return []; };

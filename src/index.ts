@@ -3,18 +3,48 @@ import openAIPlugin from "@elizaos/plugin-openai";
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { nnsPlugin } from '@crosschainlabs/plugin-icp-nns';
 
-import starterPlugin from './plugin.ts';
 import { character } from './character.ts';
 import { v4 as uuidv4 } from 'uuid';
 import { idlFactory } from './ai-neuron-canister/ai-neuron-backend/';
 import { encoding_for_model, TiktokenModel } from '@dqbd/tiktoken';
 
+import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
+import pemfile from 'pem-file';
+import fs from 'fs';
+import path from 'path';
+
 const IcOsVersionElection = 13;
 const ProtocolCanisterManagement = 17;
 const ProposalStatusOpen = 1;
 
-async function createStorageActor() {
-  const agent = await HttpAgent.create({ host: 'http://127.0.0.1:4943' });
+const getSecp256k1Identity = () => {
+  //let filePath = '~/.config/dfx/identity/ai-neuron/identity.pem';
+  //const rawKey = fs.readFileSync(path.resolve(filePath.replace(/^~(?=$|\/|\\)/, process.env.HOME || process.env.USERPROFILE))).toString();
+
+  const filePath = "~/.config/dfx/identity/ai-neuron/identity.pem";
+
+  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
+  if (!homeDir) {
+    throw new Error("Cannot resolve HOME or USERPROFILE for expanding '~'");
+  }
+
+  const expanded = filePath.replace(
+    /^~(?=$|\/|\\)/,
+    homeDir
+  );
+
+  const absolute = path.resolve(expanded);
+  const rawKey = fs.readFileSync(absolute, "utf-8");
+
+  return Secp256k1KeyIdentity.fromSecretKey(
+    pemfile.decode(rawKey.replace(/(\n)\s+/g, '$1'),).slice(7, 39),);
+};
+
+async function createStorageActor() {  
+  const identity = getSecp256k1Identity();
+
+  const agent = await HttpAgent.create({ identity: identity, host: 'http://127.0.0.1:4943' });
+
   //const agent = await HttpAgent.create({ host: 'https://ic0.app' });
   const canisterId = 'uxrrr-q7777-77774-qaaaq-cai';
   return Actor.createActor(idlFactory, { agent, canisterId });
@@ -25,10 +55,15 @@ async function saveReport(proposalID: String, report: String) {
   let response = undefined;
 
   try {
-    response = await storageActor.saveReport(proposalID, report);
-
+    const status = await storageActor.autoscale();
+    if (status == 0) {
+        logger.info(`autoscale succesful`);
+        response = await storageActor.saveReport(proposalID, report);
+    } else {
+        logger.error(`autoscale failed, error code: ${status}`);
+    }
   } catch (error) {
-
+    logger.error(`saveReport failed, error : ${error}`);
   }
 
   return response;
@@ -52,11 +87,13 @@ function stripJsonFences(input: string): string {
 
 function fixJson(text: string): string {
   return text
-    // quote bare severity values
+    // Quote un‐quoted severity values
     .replace(/"severity"\s*:\s*(low|medium|high)/g, '"severity":"$1"')
-    // quote un-quoted keys
+    // Ensure file and issue keys are quoted
     .replace(/\bfile\s*:/g, '"file":')
-    .replace(/\bissue\s*:/g, '"issue":');
+    .replace(/\bissue\s*:/g, '"issue":')
+    // Catch patterns like `", foo", :` → `"foo":`
+    .replace(/"\s*,\s*([a-zA-Z_][a-zA-Z0-9_]*)"\s*,\s*:/g, '"$1":');
 }
 
 function objectToBase64(obj: unknown): string {
