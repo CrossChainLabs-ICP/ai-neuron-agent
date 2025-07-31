@@ -17,7 +17,7 @@ import fetch from "isomorphic-fetch";
 const IcOsVersionElection = 13;
 const ProtocolCanisterManagement = 17;
 const ProposalStatusOpen = 1;
-const MAX_STEPS = 10;
+const MAX_STEPS = 2;
 
 const getSecp256k1Identity = () => {
   //let filePath = '~/.config/dfx/identity/ai-neuron/identity.pem';
@@ -209,7 +209,7 @@ export const projectAgent: ProjectAgent = {
         console.log('prompt chunk', step, 'of', tokens.length / maxChunk);
 
 
-        const prompt = `You are a code review assistant. Analyze the following git diff chunk and identify any security, performance, or code-quality issues.
+        const prompt = `You are a code review assistant. Analyze the following git diff chunk and identify any security, performance, or code-quality issues. Use "high" severity only for exceptional or critical cases.
 ` +
           `Return ONLY one JSON object (no markdown, no comments) that strictly follows this schema:
 ` +
@@ -248,7 +248,26 @@ export const projectAgent: ProjectAgent = {
           const parsed = JSON.parse(fixed);
 
           if (parsed.issues && Array.isArray(parsed.issues)) {
-            allIssues.push(...parsed.issues);
+            const validIssues = (parsed.issues as {
+              line: number;
+              severity: 'low' | 'medium' | 'high';
+              file: string;
+              issue: string;
+            }[])
+              .filter((issue): issue is {
+                line: number;
+                severity: 'low' | 'medium' | 'high';
+                file: string;
+                issue: string;
+              } =>
+                issue.file !== '/dev/null' &&
+                issue.file !== '<relative path>'
+              )
+              .map((issue) => ({
+                ...issue,
+                file: issue.file.replace(/^(?:a\/|b\/)/, '')
+              }));
+            allIssues.push(...validIssues);
           }
 
         } catch (error) {
@@ -419,6 +438,9 @@ export const projectAgent: ProjectAgent = {
                 topic: proposal.topic,
                 status: proposal.status,
                 timestamp: proposal.timestamp.toString(),
+                repository: repository,
+                latestCommit: latestCommit, 
+                previousCommit: previousCommit,
                 audit,
               };
 
