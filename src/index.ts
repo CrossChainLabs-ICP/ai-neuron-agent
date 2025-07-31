@@ -17,6 +17,7 @@ import fetch from "isomorphic-fetch";
 const IcOsVersionElection = 13;
 const ProtocolCanisterManagement = 17;
 const ProposalStatusOpen = 1;
+const MAX_STEPS = 10;
 
 const getSecp256k1Identity = () => {
   //let filePath = '~/.config/dfx/identity/ai-neuron/identity.pem';
@@ -199,6 +200,7 @@ export const projectAgent: ProjectAgent = {
 
       // Process in token-sized slices
       let step = 0;
+      
       for (let pos = 0; pos < tokens.length; pos += maxChunk) {
         const slice = tokens.slice(pos, pos + maxChunk);
         const chunk = encoder.decode(Uint32Array.from(slice));
@@ -257,8 +259,9 @@ export const projectAgent: ProjectAgent = {
         // Throttle between chunks
         await sleep(2000);
 
-        //todo remove
-        break;
+        if (step >= MAX_STEPS) {
+          break;
+        }
 
       };
 
