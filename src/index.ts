@@ -206,7 +206,7 @@ export const projectAgent: ProjectAgent = {
         const chunk = encoder.decode(Uint32Array.from(slice));
 
         step++;
-        console.log('prompt chunk', step, 'of', tokens.length / maxChunk);
+        logger.info('prompt chunk', step);
 
 
         const prompt = `You are a code review assistant. Analyze the following git diff chunk and identify any security, performance, or code-quality issues. Use "high" severity only for exceptional or critical cases.
@@ -362,17 +362,11 @@ export const projectAgent: ProjectAgent = {
                 }`
               });
 
-            // 2) Parse the JSON response
+            //Parse the JSON response
             const { repository, latestCommit, previousCommit } = JSON.parse(stripJsonFences(raw));
 
             if (repository && latestCommit && previousCommit) {
-              /*
-              const repository = "https://github.com/dfinity/cycles-ledger.git";
-              const latestCommit = "93f5c0f5779e31673786c83aa50ff2bbf9650162";
-              const previousCommit = "01236e4d60738fc2277d47d16b95f28cff564370";
-              */
 
-              // 3) Now you can log or use them however you like
               logger.info(
                 `Repo: ${repository}, latestCommit=${latestCommit}, previousCommit=${previousCommit}`
               );
@@ -403,33 +397,12 @@ export const projectAgent: ProjectAgent = {
               logger.info(`Analyze code.`);
 
               // 3) Audit the diff with OpenAI
-              /*const auditPrompt = `
-            Please review the following git diff for security, performance, 
-            or other code‐quality issues. Without comments or notes.
-            Respond only with this strict JSON schema:
-            {
-              "issues": [
-                {
-                  "line": <number>,
-                  "severity": <low|medium|high>
-                  "file": "<path/to/file>",
-                  "issue": "<description>"
-                },
-                ...
-              ]
-            }
-            ---
-            ${diffText}
-            `;*/
-              //const rawAudit = await runtime.useModel('TEXT_LARGE', { prompt: auditPrompt });
               const rawAudit = await auditDiffInChunks(diffText);
 
               logger.info(`Analysis complete.`);
 
-              //const audit = JSON.parse(stripJsonFences(rawAudit));
               const audit = rawAudit;
 
-              logger.info(rawAudit);
 
               const report = {
                 id: proposal.id,
