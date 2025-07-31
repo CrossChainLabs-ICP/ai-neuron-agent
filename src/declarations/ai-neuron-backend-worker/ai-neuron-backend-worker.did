@@ -1,0 +1,16 @@
+type Worker = 
+ service {
+   balance: () -> (nat) query;
+   get_full_reports: (proposalIDs: vec text) -> (vec ReportItem) query;
+   get_report: (proposalID: text) -> (ReportItem) query;
+   get_reports_list: (start: nat, size: nat) -> (vec text) query;
+   save_report: (proposalID: text, proposalTitle: text, report: text) ->
+    (nat);
+ };
+type ReportItem = 
+ record {
+   proposalID: text;
+   proposalTitle: text;
+   report: text;
+ };
+service : () -> Worker

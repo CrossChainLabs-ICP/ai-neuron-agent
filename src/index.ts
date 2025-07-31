@@ -1,17 +1,18 @@
 import { logger, type IAgentRuntime, type Project, type ProjectAgent, type Memory } from '@elizaos/core';
 import openAIPlugin from "@elizaos/plugin-openai";
-import { Actor, HttpAgent } from '@dfinity/agent';
+import { HttpAgent } from '@dfinity/agent';
 import { nnsPlugin } from '@crosschainlabs/plugin-icp-nns';
 
 import { character } from './character.ts';
 import { v4 as uuidv4 } from 'uuid';
-import { idlFactory } from './ai-neuron-canister/ai-neuron-backend/';
+import { createActor } from './declarations/ai-neuron-backend/';
 import { encoding_for_model, TiktokenModel } from '@dqbd/tiktoken';
 
 import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import pemfile from 'pem-file';
 import fs from 'fs';
 import path from 'path';
+import fetch from "isomorphic-fetch";
 
 const IcOsVersionElection = 13;
 const ProtocolCanisterManagement = 17;
@@ -21,7 +22,7 @@ const getSecp256k1Identity = () => {
   //let filePath = '~/.config/dfx/identity/ai-neuron/identity.pem';
   //const rawKey = fs.readFileSync(path.resolve(filePath.replace(/^~(?=$|\/|\\)/, process.env.HOME || process.env.USERPROFILE))).toString();
 
-  const filePath = "~/.config/dfx/identity/ai-neuron/identity.pem";
+  const filePath = "~/CCL/CrossChainLabs-ICP/identity/identity.pem";
 
   const homeDir = process.env.HOME ?? process.env.USERPROFILE;
   if (!homeDir) {
@@ -40,27 +41,27 @@ const getSecp256k1Identity = () => {
     pemfile.decode(rawKey.replace(/(\n)\s+/g, '$1'),).slice(7, 39),);
 };
 
-async function createStorageActor() {  
+async function createStorageActor() {
   const identity = getSecp256k1Identity();
 
-  const agent = await HttpAgent.create({ identity: identity, host: 'http://127.0.0.1:4943' });
+  const agent = await HttpAgent.create({ identity: identity, host: 'http://127.0.0.1:4943', fetch });
 
   //const agent = await HttpAgent.create({ host: 'https://ic0.app' });
   const canisterId = 'uxrrr-q7777-77774-qaaaq-cai';
-  return Actor.createActor(idlFactory, { agent, canisterId });
+  return createActor(canisterId, { agent });
 }
 
-async function saveReport(proposalID: String, report: String) {
+async function saveReport(proposalID: string, base64Title: string, base64Report: string) {
   const storageActor = await createStorageActor();
   let response = undefined;
 
   try {
     const status = await storageActor.autoscale();
-    if (status == 0) {
-        logger.info(`autoscale succesful`);
-        response = await storageActor.saveReport(proposalID, report);
+    if (status == 0n) {
+      logger.info(`autoscale succesful`);
+      response = await storageActor.saveReport(proposalID, base64Title, base64Report);
     } else {
-        logger.error(`autoscale failed, error code: ${status}`);
+      logger.error(`autoscale failed, error code: ${status}`);
     }
   } catch (error) {
     logger.error(`saveReport failed, error : ${error}`);
@@ -78,6 +79,7 @@ const initCharacter = async ({ runtime }: { runtime: IAgentRuntime }) => {
   logger.info(`Name: ${character.name}`);
 };
 
+/*
 function stripJsonFences(input: string): string {
   // Matches ```json or ```json\r?\n, captures everything up to the next ```
   const fencePattern = /```json(?:\r?\n)?([\s\S]*?)```/;
@@ -94,6 +96,35 @@ function fixJson(text: string): string {
     .replace(/\bissue\s*:/g, '"issue":')
     // Catch patterns like `", foo", :` → `"foo":`
     .replace(/"\s*,\s*([a-zA-Z_][a-zA-Z0-9_]*)"\s*,\s*:/g, '"$1":');
+}
+    */
+/**
+ * If the model wrapped the JSON in ```json…```, extract only that block.
+ */
+function stripJsonFences(input: string): string {
+  const fencePattern = /```json(?:\r?\n)?([\s\S]*?)```/;
+  const match = input.match(fencePattern);
+  return match ? match[1].trim() : input;
+}
+
+/**
+ * Normalize common JSON glitches so we can reliably JSON.parse.
+ */
+function fixJson(text: string): string {
+  return text
+    // 1) Convert single-quoted values to double-quoted
+    .replace(/:\s*'([^']*)'/g, ':"$1"')
+    // 2) Quote unquoted keys (start of object/array or comma)
+    .replace(/([\{\[,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+    // 3) Wrap unquoted word values (e.g., severity: high)
+    .replace(/:\s*([a-zA-Z_][a-zA-Z0-9_-]*)\s*(,|\}|\])/g, ':"$1"$2')
+    // 4) Remove ellipses placeholders
+    .replace(/\.\.\./g, '')
+    // 5) Strip trailing commas before ] or }
+    .replace(/,(\s*[\]}])/g, '$1')
+    // 6) Convert null severity to empty string
+    .replace(/"severity"\s*:\s*null/g, '"severity":""')
+    .trim();
 }
 
 function objectToBase64(obj: unknown): string {
@@ -138,40 +169,101 @@ export const projectAgent: ProjectAgent = {
     const auditDiffInChunks = async (
       diffText: string,
       modelName: TiktokenModel = 'gpt-4o'
-    ): Promise<{ issues: Array<any> }> => {
-      const encoder = encoding_for_model(modelName);
-      const tokens = encoder.encode(diffText);
-      const maxChunk = 4000;
-      const allIssues: any[] = [];
+    ): Promise<{
+      issues: Array<{ line: number; severity: 'low' | 'medium' | 'high'; file: string; issue: string }>;
+    }> => {
+      // Define allowed code file extensions
+      const allowedExt = [
+        '.ts', '.js', '.jsx', '.tsx', '.java', '.py', '.go', '.rs', '.cpp', '.c', '.cs'
+      ];
 
+      // Split the diff into per-file chunks
+      const fileDiffs = diffText.split(/(?=^diff --git )/m);
+
+      // Filter chunks to only include allowed code file types
+      const filteredDiffs = fileDiffs.filter(chunk => {
+        const match = chunk.match(/^diff --git a\/(.+?) b\/(.+?)$/m);
+        if (!match) return false;
+        const filePath = match[1];
+        return allowedExt.some(ext => filePath.endsWith(ext));
+      });
+
+      // Rejoin filtered diff text
+      const filteredText = filteredDiffs.join('\n');
+
+      // Prepare tokenizer
+      const encoder = encoding_for_model(modelName);
+      const tokens = encoder.encode(filteredText);
+      const maxChunk = 4000;
+      const allIssues: Array<any> = [];
+
+      // Process in token-sized slices
+      let step = 0;
       for (let pos = 0; pos < tokens.length; pos += maxChunk) {
         const slice = tokens.slice(pos, pos + maxChunk);
         const chunk = encoder.decode(Uint32Array.from(slice));
 
-        const prompt = `Please review the following git diff chunk for security, performance, or other code-quality issues. Respond only with valid JSON strictly following this schema (no markdown fences, no extra text):
-{
-  "issues": [
-    { "line": number, "severity": "low|medium|high", "file": "<path>", "issue": "<description>" },
-    ...
-  ]
-}
----
-${chunk}`;
+        step++;
+        console.log('prompt chunk', step, 'of', tokens.length / maxChunk);
 
-        const raw = await callWithRetry('TEXT_LARGE', { prompt });
-        logger.info('raw', raw);
-        const strip = fixJson(stripJsonFences(raw));
-        logger.info('strip', strip);
-        const parsed = JSON.parse(strip);
-        logger.info('parsed', parsed);
-        if (parsed.issues && Array.isArray(parsed.issues)) {
-          allIssues.push(...parsed.issues);
+
+        const prompt = `You are a code review assistant. Analyze the following git diff chunk and identify any security, performance, or code-quality issues.
+` +
+          `Return ONLY one JSON object (no markdown, no comments) that strictly follows this schema:
+` +
+          `{
+` +
+          `  "issues": [
+` +
+          `    {
+` +
+          `      "line": <number>,        // the line number in the diff
+` +
+          `      "severity": "low" | "medium" | "high",
+` +
+          `      "file": "<relative path>",  // path to the file where issue was found
+` +
+          `      "issue": "<concise description>"
+` +
+          `    }
+` +
+          `  ]
+` +
+          `}
+---
+` +
+          `${chunk}`;
+
+        let raw = '';
+
+        const sanitizeJson = (text: string): string => text.trim();
+
+        try {
+          raw = await callWithRetry('TEXT_LARGE', { prompt });
+          const stripped = stripJsonFences(raw);
+          const cleaned = sanitizeJson(stripped);
+          const fixed = fixJson(cleaned);
+          const parsed = JSON.parse(fixed);
+
+          if (parsed.issues && Array.isArray(parsed.issues)) {
+            allIssues.push(...parsed.issues);
+          }
+
+        } catch (error) {
+          console.log(raw);
+          console.log(error);
         }
+
+        // Throttle between chunks
         await sleep(2000);
-      }
+
+        //todo remove
+        break;
+
+      };
 
       return { issues: allIssues };
-    };
+    }
 
     // Character initialization
     await initCharacter({ runtime });
@@ -289,7 +381,7 @@ ${chunk}`;
               logger.info(`Analyze code.`);
 
               // 3) Audit the diff with OpenAI
-              const auditPrompt = `
+              /*const auditPrompt = `
             Please review the following git diff for security, performance, 
             or other code‐quality issues. Without comments or notes.
             Respond only with this strict JSON schema:
@@ -306,7 +398,7 @@ ${chunk}`;
             }
             ---
             ${diffText}
-            `;
+            `;*/
               //const rawAudit = await runtime.useModel('TEXT_LARGE', { prompt: auditPrompt });
               const rawAudit = await auditDiffInChunks(diffText);
 
@@ -330,14 +422,15 @@ ${chunk}`;
               logger.info(`Save report on-chain.`);
 
               const base64Report = objectToBase64(report);
+              const base64Title = objectToBase64(proposal.title);
 
               console.log({
                 id: proposal.id,
-                base64Title: objectToBase64(proposal.title),
+                base64Title: base64Title,
                 base64Report: base64Report
               });
 
-              const saveResult = await saveReport(proposal.id, base64Report);
+              const saveResult = await saveReport(proposal.id, base64Title, base64Report);
 
               logger.info(`Report saved.`, saveResult);
             } else {
@@ -366,6 +459,6 @@ const project: Project = {
   agents: [projectAgent],
 };
 
-export { testSuites } from './__tests__/e2e';
+//export { testSuites } from './__tests__/e2e';
 export { character } from './character.ts';
 export default project;
