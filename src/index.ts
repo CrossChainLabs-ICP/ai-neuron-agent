@@ -6,6 +6,8 @@ import { nnsPlugin } from '@crosschainlabs/plugin-icp-nns';
 import { character } from './character.ts';
 import { v4 as uuidv4 } from 'uuid';
 import { createActor } from './declarations/ai-neuron-backend/';
+import { createActor as createWorkerActor} from "./declarations/ai-neuron-backend-worker/";
+
 import { encoding_for_model, TiktokenModel } from '@dqbd/tiktoken';
 
 import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
@@ -20,8 +22,6 @@ const ProposalStatusOpen = 1;
 const MAX_STEPS = 2;
 
 const getSecp256k1Identity = () => {
-  //let filePath = '~/.config/dfx/identity/ai-neuron/identity.pem';
-  //const rawKey = fs.readFileSync(path.resolve(filePath.replace(/^~(?=$|\/|\\)/, process.env.HOME || process.env.USERPROFILE))).toString();
 
   const filePath = "~/CCL/CrossChainLabs-ICP/identity/identity.pem";
 
@@ -71,6 +71,41 @@ async function saveReport(proposalID: string, base64Title: string, base64Report:
   return response;
 }
 
+async function haveReport(proposalID: string) : Promise<boolean> {
+  const identity = getSecp256k1Identity();
+  const storageActor = await createStorageActor();
+
+  let haveReport = false;
+
+  const agent = await HttpAgent.create({identity: identity, host: 'http://127.0.0.1:4943', fetch });
+  //const agent = await HttpAgent.create({identity: identity, host: 'https://ic0.app', fetch });
+
+
+  try {
+    let workers = [];
+
+    const workers_list = await storageActor.get_workers();
+
+    if (workers_list?.length > 0) {
+      for (const w of workers_list) {
+        workers.push(createWorkerActor(w, { agent }));
+      }
+    }
+
+    for (const worker of workers) {
+      const report = await worker.get_report(proposalID);
+
+      if (report?.proposalID == proposalID) {
+        haveReport = true;
+      }
+    }
+  } catch (error) {
+    //console.log(`haveReport failed, error : ${error}`);
+  }
+
+  return haveReport;
+}
+
 
 /**
  * Initialize the character in a headless (no-UI) environment.
@@ -80,25 +115,6 @@ const initCharacter = async ({ runtime }: { runtime: IAgentRuntime }) => {
   logger.info(`Name: ${character.name}`);
 };
 
-/*
-function stripJsonFences(input: string): string {
-  // Matches ```json or ```json\r?\n, captures everything up to the next ```
-  const fencePattern = /```json(?:\r?\n)?([\s\S]*?)```/;
-  const match = input.match(fencePattern);
-  return match ? match[1].trim() : input;
-}
-
-function fixJson(text: string): string {
-  return text
-    // Quote un‐quoted severity values
-    .replace(/"severity"\s*:\s*(low|medium|high)/g, '"severity":"$1"')
-    // Ensure file and issue keys are quoted
-    .replace(/\bfile\s*:/g, '"file":')
-    .replace(/\bissue\s*:/g, '"issue":')
-    // Catch patterns like `", foo", :` → `"foo":`
-    .replace(/"\s*,\s*([a-zA-Z_][a-zA-Z0-9_]*)"\s*,\s*:/g, '"$1":');
-}
-    */
 /**
  * If the model wrapped the JSON in ```json…```, extract only that block.
  */
@@ -206,8 +222,7 @@ export const projectAgent: ProjectAgent = {
         const chunk = encoder.decode(Uint32Array.from(slice));
 
         step++;
-        logger.info('prompt chunk', step);
-
+        logger.info(`Analize chunk ${step} `);
 
         const prompt = `You are a code review assistant. Analyze the following git diff chunk and identify any security, performance, or code-quality issues. Use "high" severity only for exceptional or critical cases.
 ` +
@@ -334,10 +349,18 @@ export const projectAgent: ProjectAgent = {
         }
 
         const proposals = (resultNNS.data as { proposals: Proposal[] }).proposals;
+        proposals.reverse();
 
         logger.info(`Fetched ${proposals.length} proposals.`);
 
         for (const proposal of proposals) {
+          //check if we already have the report
+          const haveReportWithID = await haveReport(proposal.id);
+          if (haveReportWithID)  {
+            logger.info(`Report already exists for proposal ${proposal.id}`);
+            continue;
+          }
+
           if (!proposal.summary) continue;
 
           logger.info(`Analize proposal ${proposal.id} ${proposal.title}`);
@@ -392,7 +415,7 @@ export const projectAgent: ProjectAgent = {
 
               logger.info(`Download complete.`);
 
-              logger.info(`Fetched diff (${diffText.length} chars)`);
+              logger.info(`Fetched diff (${diffText.length} chars).`);
 
               logger.info(`Analyze code.`);
 
@@ -402,7 +425,6 @@ export const projectAgent: ProjectAgent = {
               logger.info(`Analysis complete.`);
 
               const audit = rawAudit;
-
 
               const report = {
                 id: proposal.id,
@@ -421,13 +443,6 @@ export const projectAgent: ProjectAgent = {
 
               const base64Report = objectToBase64(report);
               const base64Title = objectToBase64(proposal.title);
-
-              console.log({
-                id: proposal.id,
-                base64Title: base64Title,
-                base64Report: base64Report
-              });
-
               const saveResult = await saveReport(proposal.id, base64Title, base64Report);
 
               logger.info(`Report saved.`, saveResult);
@@ -439,8 +454,6 @@ export const projectAgent: ProjectAgent = {
               `Error for proposal "${proposal.id}"`, e
             );
           }
-
-          //break;
         }
 
       } catch (err) {
