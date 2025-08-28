@@ -6,7 +6,6 @@ import { nnsPlugin } from '@crosschainlabs/plugin-icp-nns';
 import { character } from './character.ts';
 import { v4 as uuidv4 } from 'uuid';
 import { createActor } from './declarations/ai-neuron-backend/';
-import { createActor as createWorkerActor} from "./declarations/ai-neuron-backend-worker/";
 
 import { encoding_for_model, TiktokenModel } from '@dqbd/tiktoken';
 
@@ -45,10 +44,12 @@ const getSecp256k1Identity = () => {
 async function createStorageActor() {
   const identity = getSecp256k1Identity();
 
-  const agent = await HttpAgent.create({ identity: identity, host: 'http://127.0.0.1:4943', fetch });
+  //const agent = await HttpAgent.create({ identity: identity, host: 'http://127.0.0.1:4943', fetch });
+  //.const canisterId = 'uxrrr-q7777-77774-qaaaq-cai';
 
-  //const agent = await HttpAgent.create({ host: 'https://ic0.app' });
-  const canisterId = 'uxrrr-q7777-77774-qaaaq-cai';
+  const agent = await HttpAgent.create({ identity: identity, host: 'https://ic0.app', fetch });
+  const canisterId = 'dgsrj-jyaaa-aaaak-qulna-cai';
+
   return createActor(canisterId, { agent });
 }
 
@@ -57,13 +58,7 @@ async function saveReport(proposalID: string, base64Title: string, base64Report:
   let response = undefined;
 
   try {
-    const status = await storageActor.autoscale();
-    if (status == 0n) {
-      logger.info(`autoscale succesful`);
-      response = await storageActor.saveReport(proposalID, base64Title, base64Report);
-    } else {
-      logger.error(`autoscale failed, error code: ${status}`);
-    }
+    response = await storageActor.saveReport(proposalID, base64Title, base64Report);
   } catch (error) {
     logger.error(`saveReport failed, error : ${error}`);
   }
@@ -82,23 +77,11 @@ async function haveReport(proposalID: string) : Promise<boolean> {
 
 
   try {
-    let workers = [];
-
-    const workers_list = await storageActor.get_workers();
-
-    if (workers_list?.length > 0) {
-      for (const w of workers_list) {
-        workers.push(createWorkerActor(w, { agent }));
-      }
-    }
-
-    for (const worker of workers) {
-      const report = await worker.get_report(proposalID);
+      const report = await storageActor.get_report(proposalID);
 
       if (report?.proposalID == proposalID) {
         haveReport = true;
       }
-    }
   } catch (error) {
     //console.log(`haveReport failed, error : ${error}`);
   }
@@ -222,7 +205,7 @@ export const projectAgent: ProjectAgent = {
         const chunk = encoder.decode(Uint32Array.from(slice));
 
         step++;
-        logger.info(`Analize chunk ${step} `);
+        logger.info(`Analyze chunk ${step} `);
 
         const prompt = `You are a code review assistant. Analyze the following git diff chunk and identify any security, performance, or code-quality issues. Use "high" severity only for exceptional or critical cases.
 ` +

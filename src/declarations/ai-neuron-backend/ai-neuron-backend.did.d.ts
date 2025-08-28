@@ -2,13 +2,17 @@ import type { Principal } from '@dfinity/principal';
 import type { ActorMethod } from '@dfinity/agent';
 import type { IDL } from '@dfinity/candid';
 
+export interface ReportItem {
+  'report' : string,
+  'proposalTitle' : string,
+  'proposalID' : string,
+}
 export interface ReportsStorage {
-  'autoscale' : ActorMethod<[], bigint>,
   'balance' : ActorMethod<[], bigint>,
-  'delete_workers' : ActorMethod<[], undefined>,
-  'get_workers' : ActorMethod<[], Array<string>>,
-  'saveReport' : ActorMethod<[string, string, string], boolean>,
-  'upgrade' : ActorMethod<[Uint8Array | number[]], undefined>,
+  'get_full_reports' : ActorMethod<[Array<string>], Array<ReportItem>>,
+  'get_report' : ActorMethod<[string], ReportItem>,
+  'get_reports_list' : ActorMethod<[bigint, bigint], Array<string>>,
+  'saveReport' : ActorMethod<[string, string, string], bigint>,
 }
 export interface _SERVICE extends ReportsStorage {}
 export declare const idlFactory: IDL.InterfaceFactory;

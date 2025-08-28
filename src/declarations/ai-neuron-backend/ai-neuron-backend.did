@@ -1,11 +1,15 @@
 type ReportsStorage = 
  service {
-   autoscale: () -> (nat);
    balance: () -> (nat) query;
-   delete_workers: () -> ();
-   get_workers: () -> (vec text) query;
-   saveReport: (proposalID: text, proposalTitle: text, report: text) ->
-    (bool);
-   upgrade: (wasmModule: blob) -> ();
+   get_full_reports: (proposalIDs: vec text) -> (vec ReportItem) query;
+   get_report: (proposalID: text) -> (ReportItem) query;
+   get_reports_list: (start: nat, size: nat) -> (vec text) query;
+   saveReport: (proposalID: text, proposalTitle: text, report: text) -> (nat);
+ };
+type ReportItem = 
+ record {
+   proposalID: text;
+   proposalTitle: text;
+   report: text;
  };
 service : () -> ReportsStorage
