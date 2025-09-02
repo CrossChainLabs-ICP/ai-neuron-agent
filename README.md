@@ -1,109 +1,123 @@
-# Project Starter
+# AI Neuron Agent
 
-This is the starter template for ElizaOS projects.
+**AI Neuron Agent** is the AI agent of the **AI-Driven Governance & Security for ICP** suite. It fetches proposals from the NNS, infers the target repository and commit range, audits the Git diff with an LLM, and stores a structured report on-chain in the AI Neuron canister.
 
-## Features
+> Part of the [**AI-Driven Governance & Security for ICP**](https://github.com/CrossChainLabs-ICP/ai-neuron) project.
 
-- Pre-configured project structure for ElizaOS development
-- Comprehensive testing setup with component and e2e tests
-- Default character configuration with plugin integration
-- Example service, action, and provider implementations
-- TypeScript configuration for optimal developer experience
-- Built-in documentation and examples
+---
 
-## Getting Started
+## What it does
 
+1. **Fetch proposals** via the [Eliza NNS plugin](https://github.com/CrossChainLabs-ICP/plugin-icp-nns).
+2. **Extract repo + commit range** from the proposal summary using an LLM.
+3. **Download and diff** the code between the two commits from GitHub.
+4. **Audit the diff** in 4k‑token slices: detect issues with severity, file, and line.
+5. **Persist the report on‑chain** via `saveReport(proposalID, base64Title, base64Report)`.
+6. **Downstream consumption**: the web app reads & shows these reports; OC Bot posts summaries.
+
+---
+
+## Key capabilities
+
+- Integrates the **Eliza** framework and an LLM.
+- Uses **@crosschainlabs/plugin-icp-nns** to fetch proposals and filter by topic/status.
+- Builds a structured **audit JSON** (issues with `low|medium|high` severity).
+- Stores the audit report to the **AI Neuron backend canister** (Motoko).
+
+---
+
+## Prerequisites
+
+- **Node.js** 24+ (recommended with **Bun** runtime)
+- **OpenAI API key** (for `@elizaos/plugin-openai`)
+- **ICP identity (Secp256k1)** PEM file for canister calls
+- **Governance canister ID** (NNS) in env (used by the NNS plugin)
+- **AI Neuron backend canister ID** in env (used to store audit reports)
+
+---
+
+## Quickstart
+
+### 1) Install dependencies
 ```bash
-# Create a new project
-elizaos create -t project my-project
-# Dependencies are automatically installed and built
-
-# Navigate to the project directory
-cd my-project
-
-# Start development immediately
-elizaos dev
+bun install
 ```
 
-## Development
-
+### 2) Environment
+Copy `.env.example` → `.env` and set at least:
 ```bash
-# Start development with hot-reloading (recommended)
-elizaos dev
-
-# OR start without hot-reloading
-elizaos start
-# Note: When using 'start', you need to rebuild after changes:
-# bun run build
-
-# Test the project
-elizaos test
+OPENAI_API_KEY=<sk-...>
+IDENTITY_PEM_FILE=<PEM file for canister calls>
+GOVERNANCE_CANISTER_ID=<nns_governance_canister_id>
+AI_NEURON_CANISTER_ID=<ai_neuron_canister_id>
+ICP_HOST=<icp_host_url>
+LOOP_INTERVAL=<loop_interval_seconds>
 ```
 
-## Testing
-
-ElizaOS provides a comprehensive testing structure for projects:
-
-### Test Structure
-
-- **Component Tests** (`__tests__/` directory):
-
-  - **Unit Tests**: Test individual functions and components in isolation
-  - **Integration Tests**: Test how components work together
-  - Run with: `elizaos test component`
-
-- **End-to-End Tests** (`e2e/` directory):
-
-  - Test the project within a full ElizaOS runtime
-  - Run with: `elizaos test e2e`
-
-- **Running All Tests**:
-  - `elizaos test` runs both component and e2e tests
-
-### Writing Tests
-
-Component tests use Vitest:
-
-```typescript
-// Unit test example (__tests__/config.test.ts)
-describe('Configuration', () => {
-  it('should load configuration correctly', () => {
-    expect(config.debug).toBeDefined();
-  });
-});
-
-// Integration test example (__tests__/integration.test.ts)
-describe('Integration: Plugin with Character', () => {
-  it('should initialize character with plugins', async () => {
-    // Test interactions between components
-  });
-});
+### 3) Build & run
+```bash
+bun run build
+bun run dev      # starts the agent loop (elizaos dev)
 ```
 
-E2E tests use ElizaOS test interface:
+---
 
-```typescript
-// E2E test example (e2e/project.test.ts)
-export class ProjectTestSuite implements TestSuite {
-  name = 'project_test_suite';
-  tests = [
-    {
-      name: 'project_initialization',
-      fn: async (runtime) => {
-        // Test project in a real runtime
-      },
-    },
-  ];
+## How it works (code-level)
+
+### Fetch proposals (Eliza NNS plugin)
+The agent invokes the NNS provider with a command like:
+```ts
+content: { text: `!proposals 10 topic ${topic}` }
+```
+The provider calls **NNS Governance** (`list_proposals` + `get_proposal_info`) and returns:
+```ts
+{ proposals: [{ id, title, summary, topic, status, timestamp }, ...] }
+```
+
+### Extract repo & commit range
+The agent prompts the LLM to parse the proposal summary and return strict JSON:
+```json
+{
+  "repository": "...",
+  "latestCommit": "...",
+  "previousCommit": "..."
 }
+```
+It normalizes typical model glitches using helpers:
+- `stripJsonFences()` – removes ```json code fences
+- `fixJson()` – quotes keys, converts single quotes, etc.
 
-export default new ProjectTestSuite();
+### Fetch diff & audit in chunks
+- Builds a GitHub **compare** URL and fetches raw **diff** (`Accept: application/vnd.github.v3.diff`).
+- Splits by file, filters to code extensions, tokenizes per ~4k tokens, and prompts the LLM for findings:
+```json
+{
+  "issues": [
+    { "line": 123, "severity": "medium", "file": "src/x.ts", "issue": "..." }
+  ]
+}
+```
+- Aggregates all chunk outputs into a single `audit` object.
+
+### Persist on‑chain
+
+The on-chain **ReportItem** stored by the AI Neuron canister (consumed by the web app & OC Bot):
+
+```ts
+type ReportItem = {
+  proposalID: string;
+  proposalTitle: string; // base64-encoded (often a JSON string)
+  report: string;        // base64-encoded JSON { id, title, summary, …, audit }
+}
 ```
 
-The test utilities in `__tests__/utils/` provide helper functions to simplify writing tests.
+> The agent encodes both title and report as **base64 UTF‑8 JSON**.
 
-## Configuration
+---
 
-Customize your project by modifying:
+## License
 
-- `src/index.ts` - Main entry point
-- `src/character.ts` - Character definition
+AGPL-3.0 — see [LICENSE](./LICENSE).
+
+---
+
