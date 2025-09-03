@@ -21,41 +21,46 @@ const ProposalStatusOpen = 1;
 const MAX_STEPS = 2;
 
 const getSecp256k1Identity = () => {
-
-  const filePath = "~/CCL/CrossChainLabs-ICP/identity/identity.pem";
+  const filePath = process.env.IDENTITY_PEM_FILE;
 
   const homeDir = process.env.HOME ?? process.env.USERPROFILE;
   if (!homeDir) {
     throw new Error("Cannot resolve HOME or USERPROFILE for expanding '~'");
   }
 
-  const expanded = filePath.replace(
+  const expanded = filePath?.replace(
     /^~(?=$|\/|\\)/,
     homeDir
   );
 
-  const absolute = path.resolve(expanded);
-  const rawKey = fs.readFileSync(absolute, "utf-8");
+  let rawKey;
+  if (expanded) {
+    const absolute = path.resolve(expanded);
+    rawKey = fs.readFileSync(absolute, "utf-8");
+  }
 
   return Secp256k1KeyIdentity.fromSecretKey(
-    pemfile.decode(rawKey.replace(/(\n)\s+/g, '$1'),).slice(7, 39),);
+    pemfile.decode(rawKey?.replace(/(\n)\s+/g, '$1'),).slice(7, 39),);
 };
 
 async function createStorageActor() {
   const identity = getSecp256k1Identity();
+  const agent = await HttpAgent.create({ identity: identity, host: process.env.ICP_HOST, fetch });
+  const canisterId = process.env.AI_NEURON_CANISTER_ID;
+  if (canisterId) {
+    return createActor(canisterId, { agent });
+  };
 
-  //const agent = await HttpAgent.create({ identity: identity, host: 'http://127.0.0.1:4943', fetch });
-  //.const canisterId = 'uxrrr-q7777-77774-qaaaq-cai';
-
-  const agent = await HttpAgent.create({ identity: identity, host: 'https://ic0.app', fetch });
-  const canisterId = 'dgsrj-jyaaa-aaaak-qulna-cai';
-
-  return createActor(canisterId, { agent });
+  return;
 }
 
 async function saveReport(proposalID: string, base64Title: string, base64Report: string) {
   const storageActor = await createStorageActor();
   let response = undefined;
+
+  if (!storageActor) {
+    return;
+  }
 
   try {
     response = await storageActor.saveReport(proposalID, base64Title, base64Report);
@@ -67,14 +72,13 @@ async function saveReport(proposalID: string, base64Title: string, base64Report:
 }
 
 async function haveReport(proposalID: string) : Promise<boolean> {
-  const identity = getSecp256k1Identity();
   const storageActor = await createStorageActor();
 
   let haveReport = false;
 
-  const agent = await HttpAgent.create({identity: identity, host: 'http://127.0.0.1:4943', fetch });
-  //const agent = await HttpAgent.create({identity: identity, host: 'https://ic0.app', fetch });
-
+  if (!storageActor) {
+     return false;
+  }
 
   try {
       const report = await storageActor.get_report(proposalID);
@@ -288,7 +292,11 @@ export const projectAgent: ProjectAgent = {
     // Character initialization
     await initCharacter({ runtime });
 
-    const intervalMs = 10_000;
+    const intervalSec: number = process.env.LOOP_INTERVAL
+      ? parseInt(process.env.LOOP_INTERVAL, 10)
+      : 3600;
+
+    const intervalMs = intervalSec * 1000;    
     let runningLoop = false;
     const timerId = setInterval(async () => {
       try {
