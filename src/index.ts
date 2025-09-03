@@ -436,7 +436,7 @@ export const projectAgent: ProjectAgent = {
               const base64Title = objectToBase64(proposal.title);
               const saveResult = await saveReport(proposal.id, base64Title, base64Report);
 
-              logger.info(`Report saved.`, saveResult);
+              logger.info(`Report saved.`, saveResult?.toString());
             } else {
               logger.info(`Skip proposal ${proposal.id} : Unable to extract proposal details from summary`);
             }
